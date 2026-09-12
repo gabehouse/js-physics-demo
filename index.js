@@ -25,25 +25,26 @@ var MAX_FRAME_DT = 0.05;
 var MAX_STEPS = 8;
 
 var GRAVITY = 880;
-var MAX_SPEED = 3400;
+var MAX_SPEED = 4200;
 var AIR_DRAG = 0.08;
 var CONTACT_FRICTION = 1.2;
 var GROUND_FRICTION = 2.8;
 var REST_SPEED = 48;
 var REST_ALIGN = 8;
+var BOUNCE_E = 0.7;
 
 // Firmer spring: shorter squash, snappier rebound.
 var SQUASH_K = 720;
-var SQUASH_C = 5.2;
+var SQUASH_C = 4.4;
 var MAX_PEN = rad * 0.32;
 
 var GRAB_K = 72;
 var GRAB_DAMP = 13;
 var POKE_SPEED = 580;
-var HIT_LOOKBACK = 48;
-var HIT_DEADZONE = 480;
-var HIT_HARD_SPEED = 5400;
-var HIT_MAX_LAUNCH = 2700;
+var HIT_LOOKBACK = 56;
+var HIT_NOISE = 70;
+// Fastest downward strike we expect (canvas px/s). Maps to a bounce near the top.
+var MAX_SLAM_CURSOR = 12000;
 
 var ptrX = 0;
 var ptrY = 0;
@@ -162,17 +163,20 @@ function wakeBall() {
   showInteractableText = false;
 }
 
-function hitAmount(speed) {
-  if (speed <= HIT_DEADZONE) {
-    return 0;
-  }
-  var t = (speed - HIT_DEADZONE) / (HIT_HARD_SPEED - HIT_DEADZONE);
-  t = clamp(t, 0, 1);
-  return t * t;
+function topBounceSpeed() {
+  var travel = Math.max(fy - 36, 480);
+  return Math.sqrt(2 * GRAVITY * travel) * 1.08;
+}
+
+function maxImpactSpeed() {
+  return topBounceSpeed() / BOUNCE_E;
 }
 
 function mapHitSpeed(speed) {
-  return hitAmount(speed) * HIT_MAX_LAUNCH;
+  if (speed < HIT_NOISE) {
+    return 0;
+  }
+  return Math.min(speed, MAX_SLAM_CURSOR) * (maxImpactSpeed() / MAX_SLAM_CURSOR);
 }
 
 function hitBall(vx, vy) {
@@ -218,9 +222,8 @@ function tryBatHit() {
     return;
   }
   var swing = swingVelocity();
-  var amount = hitAmount(swing.speed);
   var mapped = mapHitSpeed(swing.speed);
-  if (amount <= 0 || mapped < 40) {
+  if (mapped < 40) {
     return;
   }
   var toX = state.x - ptrX;
@@ -328,9 +331,8 @@ function releaseBall(wasTap) {
     );
   } else {
     var swing = swingVelocity();
-    var amount = hitAmount(swing.speed);
     var mapped = mapHitSpeed(swing.speed);
-    if (amount > 0 && mapped > 40) {
+    if (mapped > 40) {
       hitBall(
         swing.vx / swing.speed * mapped,
         swing.vy / swing.speed * mapped
@@ -431,19 +433,19 @@ function integrate(dt) {
   if (state.y > fy + MAX_PEN) {
     state.y = fy + MAX_PEN;
     if (state.vely > 0) {
-      state.vely *= 0.2;
+      state.vely = -state.vely * BOUNCE_E;
     }
   }
   if (state.x < lx - MAX_PEN) {
     state.x = lx - MAX_PEN;
     if (state.velx < 0) {
-      state.velx *= 0.2;
+      state.velx = -state.velx * BOUNCE_E;
     }
   }
   if (state.x > rx + MAX_PEN) {
     state.x = rx + MAX_PEN;
     if (state.velx > 0) {
-      state.velx *= 0.2;
+      state.velx = -state.velx * BOUNCE_E;
     }
   }
 
