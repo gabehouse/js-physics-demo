@@ -36,10 +36,11 @@ var REST_SPEED = 48;
 var REST_ALIGN = 8;
 var BOUNCE_E = 0.7;
 
-// Firmer spring: shorter squash, snappier rebound.
+// How flat the ball looks at full compression. 0 = always a circle, 0.4 = strong pancake.
+var SQUASH_AMOUNT = 0.25;
 var SQUASH_K = 720;
-var SQUASH_C = 4.4;
-var MAX_PEN = rad * 0.32;
+var SQUASH_C = 7.4;
+var MAX_PEN = rad * 0.42;
 
 var GRAB_K = 72;
 var GRAB_DAMP = 13;
@@ -48,6 +49,12 @@ var HIT_LOOKBACK = 56;
 var HIT_NOISE = 70;
 // Fastest downward strike we expect (canvas px/s). Maps to a bounce near the top.
 var MAX_SLAM_CURSOR = 12000;
+var BALL_I = 0.4 * rad * rad;
+var SPIN_FRICTION = 5.2;
+var SPIN_AIR = 0.18;
+var MAGNUS = 0.00014;
+var MAX_OMEGA = 26;
+var HIT_SPIN = 1;
 
 var ptrX = 0;
 var ptrY = 0;
@@ -72,25 +79,69 @@ var state = {
   y: 0,
   velx: 0,
   vely: 0,
+  angle: 0,
+  omega: 0,
   grounded: true
 };
 
-var prevPose = { x: 0, y: 0, sx: 1, sy: 1 };
-var view = { x: 0, y: 0, sx: 1, sy: 1 };
+var prevPose = { x: 0, y: 0, sx: 1, sy: 1, angle: 0 };
+var view = { x: 0, y: 0, sx: 1, sy: 1, angle: 0 };
 
 function capturePose(target) {
   target.x = state.x;
   target.y = state.y;
   target.sx = sx;
   target.sy = sy;
+  target.angle = state.angle;
 }
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+function lerpAngle(a, b, t) {
+  var d = b - a;
+  while (d > Math.PI) {
+    d -= Math.PI * 2;
+  }
+  while (d < -Math.PI) {
+    d += Math.PI * 2;
+  }
+  return a + d * t;
+}
+
+function clampSpin() {
+  if (state.omega > MAX_OMEGA) {
+    state.omega = MAX_OMEGA;
+  } else if (state.omega < -MAX_OMEGA) {
+    state.omega = -MAX_OMEGA;
+  }
+}
+
+function wrapAngle() {
+  var tau = Math.PI * 2;
+  state.angle = state.angle % tau;
+  if (state.angle < 0) {
+    state.angle += tau;
+  }
+}
+
 function setWorldTransform(a, d, e, f) {
   ctx.setTransform(drawScaleX * a, 0, 0, drawScaleY * d, drawScaleX * e, drawScaleY * f);
+}
+
+function squashPivot() {
+  var px = view.x;
+  var py = view.y;
+  if (view.y > fy + 0.5) {
+    py = fy + rad;
+  }
+  if (view.x < lx - 0.5) {
+    px = lx - rad;
+  } else if (view.x > rx + 0.5) {
+    px = rx + rad;
+  }
+  return { x: px, y: py };
 }
 
 function layout() {
@@ -215,7 +266,20 @@ function mapHitSpeed(speed) {
   return Math.min(speed, MAX_SLAM_CURSOR) * (maxImpactSpeed() / MAX_SLAM_CURSOR);
 }
 
+function applyHitSpin(vx, vy) {
+  var rx = ptrX - state.x;
+  var ry = ptrY - state.y;
+  if (rx * rx + ry * ry < 80) {
+    return;
+  }
+  var jx = vx - state.velx;
+  var jy = vy - state.vely;
+  state.omega += (rx * jy - ry * jx) * HIT_SPIN / BALL_I;
+  clampSpin();
+}
+
 function hitBall(vx, vy) {
+  applyHitSpin(vx, vy);
   wakeBall();
   state.velx = clamp(vx, -MAX_SPEED, MAX_SPEED);
   state.vely = clamp(vy, -MAX_SPEED, MAX_SPEED);
@@ -299,6 +363,12 @@ function trackPointer(clientX, clientY, dt) {
 
   if (pointerDown && (Math.abs(ptrX - prevPtrX) > 6 || Math.abs(ptrY - prevPtrY) > 6)) {
     grabMoved = true;
+  }
+  if (grabbed) {
+    var grx = ptrX - state.x;
+    var gry = ptrY - state.y;
+    state.omega += (grx * (ptrY - prevPtrY) - gry * (ptrX - prevPtrX)) * 18 / BALL_I;
+    clampSpin();
   }
 
   tryBatHit();
@@ -417,10 +487,19 @@ function integrate(dt) {
   if (state.grounded && !grabbed) {
     state.y = fy;
     state.vely = 0;
-    state.velx *= Math.exp(-GROUND_FRICTION * dt);
-    if (Math.abs(state.velx) < 8) {
+    var slip = state.velx - state.omega * rad;
+    var grip = -SPIN_FRICTION * slip;
+    state.velx += grip * dt;
+    state.omega += (-grip * rad / BALL_I) * dt;
+    state.velx *= Math.exp(-GROUND_FRICTION * 0.4 * dt);
+    state.omega *= Math.exp(-GROUND_FRICTION * 0.4 * dt);
+    if (Math.abs(state.velx) < 8 && Math.abs(state.omega) < 0.2) {
       state.velx = 0;
+      state.omega = 0;
     }
+    clampSpin();
+    state.angle += state.omega * dt;
+    wrapAngle();
     state.x += state.velx * dt;
     state.x = clamp(state.x, lx, rx);
     return;
@@ -428,6 +507,7 @@ function integrate(dt) {
 
   var ax = 0;
   var ay = grabbed ? GRAVITY * 0.15 : GRAVITY;
+  var alpha = 0;
 
   if (grabbed) {
     ax += (ptrX - state.x) * GRAB_K - state.velx * GRAB_DAMP;
@@ -435,6 +515,9 @@ function integrate(dt) {
   } else {
     ax -= state.velx * AIR_DRAG;
     ay -= state.vely * AIR_DRAG;
+    ax += MAGNUS * state.omega * state.vely;
+    ay -= MAGNUS * state.omega * state.velx;
+    alpha -= state.omega * SPIN_AIR;
   }
 
   var floorPen = state.y - fy;
@@ -444,18 +527,37 @@ function integrate(dt) {
   if (floorPen > 0) {
     ay += contactAccel(floorPen, state.vely, SQUASH_K, SQUASH_C);
     if (!grabbed) {
-      ax -= state.velx * (state.grounded ? GROUND_FRICTION : CONTACT_FRICTION);
+      var floorSlip = state.velx - state.omega * rad;
+      var floorGrip = -SPIN_FRICTION * floorSlip;
+      ax += floorGrip;
+      alpha += -floorGrip * rad / BALL_I;
     }
   }
   if (leftPen > 0) {
     ax += -contactAccel(leftPen, -state.velx, SQUASH_K, SQUASH_C);
+    if (!grabbed) {
+      var leftSlip = state.vely + state.omega * rad;
+      var leftGrip = -SPIN_FRICTION * leftSlip;
+      ay += leftGrip;
+      alpha += leftGrip * rad / BALL_I;
+    }
   }
   if (rightPen > 0) {
     ax += contactAccel(rightPen, state.velx, SQUASH_K, SQUASH_C);
+    if (!grabbed) {
+      var rightSlip = state.vely - state.omega * rad;
+      var rightGrip = -SPIN_FRICTION * rightSlip;
+      ay += rightGrip;
+      alpha += -rightGrip * rad / BALL_I;
+    }
   }
 
   state.velx += ax * dt;
   state.vely += ay * dt;
+  state.omega += alpha * dt;
+  clampSpin();
+  state.angle += state.omega * dt;
+  wrapAngle();
 
   var speed = Math.hypot(state.velx, state.vely);
   if (speed > MAX_SPEED) {
@@ -500,11 +602,18 @@ function integrate(dt) {
   }
 }
 
+function contactCompress(pen) {
+  if (pen <= 0 || SQUASH_AMOUNT <= 0) {
+    return 0;
+  }
+  return Math.min(pen / MAX_PEN, 1) * SQUASH_AMOUNT;
+}
+
 function updateSquash(dt) {
   var floorPen = Math.max(0, state.y - fy);
   var wallPen = Math.max(0, lx - state.x, state.x - rx);
-  var compressY = Math.min(floorPen / (rad * 0.9), 0.42);
-  var compressX = Math.min(wallPen / (rad * 0.9), 0.42);
+  var compressY = contactCompress(floorPen);
+  var compressX = contactCompress(wallPen);
 
   sx = (1 + compressY) / (1 + compressX);
   sy = (1 + compressX) / (1 + compressY);
@@ -533,6 +642,23 @@ function drawCircle() {
   ctx.stroke();
   ctx.fillStyle = "yellow";
   ctx.fill();
+}
+
+function drawSpinMark() {
+  var c = Math.cos(view.angle);
+  var s = Math.sin(view.angle);
+  ctx.strokeStyle = "rgba(25, 25, 25, 0.92)";
+  ctx.lineCap = "round";
+  ctx.lineWidth = 16;
+  ctx.beginPath();
+  ctx.moveTo(view.x - rad * c, view.y - rad * s);
+  ctx.lineTo(view.x + rad * c, view.y + rad * s);
+  ctx.stroke();
+  ctx.lineWidth = 9;
+  ctx.beginPath();
+  ctx.moveTo(view.x + rad * 0.42 * s, view.y - rad * 0.42 * c);
+  ctx.lineTo(view.x - rad * 0.42 * s, view.y + rad * 0.42 * c);
+  ctx.stroke();
 }
 
 function drawShading() {
@@ -606,13 +732,15 @@ function drawDebug() {
 }
 
 function draw() {
+  var pivot = squashPivot();
   setWorldTransform(1, 1, 0, 0);
   drawBackground();
   drawText();
-  setWorldTransform(view.sx, 1, -view.x * (view.sx - 1), 0);
+  setWorldTransform(view.sx, 1, pivot.x * (1 - view.sx), 0);
   drawShadow();
-  setWorldTransform(view.sx, view.sy, -view.x * (view.sx - 1), view.y * (1 - view.sy));
+  setWorldTransform(view.sx, view.sy, pivot.x * (1 - view.sx), pivot.y * (1 - view.sy));
   drawCircle();
+  drawSpinMark();
   drawShading();
   setWorldTransform(1, 1, 0, 0);
   if (SHOW_DEBUG) {
@@ -625,6 +753,7 @@ function syncView(alpha) {
   view.y = lerp(prevPose.y, state.y, alpha);
   view.sx = lerp(prevPose.sx, sx, alpha);
   view.sy = lerp(prevPose.sy, sy, alpha);
+  view.angle = lerpAngle(prevPose.angle, state.angle, alpha);
 }
 
 function loop(timestamp) {
