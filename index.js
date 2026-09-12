@@ -1,533 +1,651 @@
-//ab
-var lines = false;
+var canvas = document.getElementById("canvas");
+var ctx = canvas.getContext("2d");
 
-var canvas = document.getElementById("canvas")
-var ctx = canvas.getContext("2d")
-var width
-var height
-var skyx,skyy,skyw,skyh,gx,gy,gw,gh,fy
-var oldcx = 0;
-var oldcy = 0;
-var curcx = 0;
-var curcy = 0;
-var curt = 0;
-var oldt = 0;
-var nvx = 0;
-var nvy = 0;
+var width;
+var height;
+var skyx, skyy, skyw, skyh, gx, gy, gw, gh, fy;
+var lx, rx;
+var tgrd, bgrd;
 
-var maxVel = 100;
-var maxvelx = 100;
-var d = new Date();
 var rad = 150;
-var scalex = 2;
-var scaley = 2;
-var inside = false;
-var bouncing = false;
-var hbouncing = false;
-var pbvy = 0;
-var bvy = 0;
-var squishing = false;
-var lsquishing = false;
-var rsquishing = false;
-var grounded = true;
-var sd = 0;
 var showInteractableText = true;
-
-var resize = function() {
-  width = 2*window.innerWidth
-  height = 2*window.innerHeight
-  canvas.width = width
-  canvas.height = height
-  skyx = 0
-  skyy = 0
-  skyw = width
-  skyh = height*2/3
-  gx = 0
-  gy = height*2/3
-  gw = width
-  gh = height*1/3
-  fy = gy
-}
-window.onresize = resize
-resize();
-
-
-ctx.fillStyle = 'red'
-
-
-var state = {
-  x: (width / 2) + 500,
-  y: fy,
-  velx: 0,
-  vely: 0,
-  ax: 0,
-  ay: 0.5
-};
+var SHOW_DEBUG = false;
 
 var inGithub = false;
 var inEmail = false;
-function handlers() {
-  // Mouse move event handler
-  document.onmousemove = function(event) {
-    handlePointerMove(event.pageX, event.pageY);
-  };
-  
-  // Mouse click event handler
-  document.onclick = function(event) {
-    if (inEmail) {
-      window.open('https://mail.google.com/mail/?view=cm&fs=1&to=gabriel.jsh@gmail.com');
-    } else if (inGithub) {
-      window.open('https://github.com/gabehouse');
-    }
-  };
-  
-  // Touch move event handler
-  document.addEventListener('touchmove', function(event) {
-    if (event.touches.length > 0) {
-      handlePointerMove(event.touches[0].pageX, event.touches[0].pageY);
-    }
-    // Prevent scrolling while touching the canvas
-    event.preventDefault();
-  }, { passive: false });
-  
-  // Touch end event handler (equivalent to click)
-  document.addEventListener('touchend', function(event) {
-    if (inEmail) {
-      window.open('https://mail.google.com/mail/?view=cm&fs=1&to=gabriel.jsh@gmail.com');
-    } else if (inGithub) {
-      window.open('https://github.com/gabehouse');
-    }
-  });
-  
-  // Common function to handle both mouse and touch movement
-  function handlePointerMove(pageX, pageY) {
-    oldcx = curcx;
-    oldcy = curcy;
-    oldt = curt;
-    curcx = (pageX - canvas.getBoundingClientRect().left) * scalex;
-    curcy = (pageY - canvas.getBoundingClientRect().top) * scaley;
-    curt = (new Date()).getMilliseconds();
-    
-    if (curcx >= ghcbx && curcx <= ghcbx + ghcbw && curcy >= ghcby && curcy <= ghcby + ghcbh) {
-      inGithub = true;
-    } else if (curcx >= emcbx && curcx <= emcbx + emcbw && curcy >= emcby && curcy <= emcby + emcbh) {
-      inEmail = true;
-    } else {
-      inGithub = false;
-      inEmail = false;
-    }
-  }
-}
 
-handlers();
+var textx;
+var l1cy, l2cy, l3cy, lineh, l3x, foottexty;
+var ghcx, ghcy, ghcbw, ghcbh, ghcbx, ghcby;
+var emcx, emcy, emcbw, emcbh, emcbx, emcby;
 
-var cursorCollision = function(p) {
-  ctx.beginPath();
-  ctx.arc(state.x,state.y,rad,0,2*Math.PI);
+// Fixed-step simulation so motion is the same on 60 Hz and 144 Hz displays.
+var FIXED_DT = 1 / 120;
+var MAX_FRAME_DT = 0.05;
+var MAX_STEPS = 8;
 
-  
-  if (ctx.isPointInPath(curcx,curcy)) {
-    
-    if (!inside) {
-      if (squishing) {
-        squishing = false;
-      }
-      if (lsquishing) {
-        lsquishing = false;
-      }
-      if (rsquishing) {
-        rsquishing = false;
-      }
-      var dx = (curcx - oldcx)/(curt - oldt)*3;
-      var dy = (curcy - oldcy)/(curt - oldt)*3;
-      if (Math.abs(dx) < 10000) {
-        state.velx = dx*10/p;
-        console.log("velxchange");
-      } else {
-        state.velx = 20;
-      }
-      if (Math.abs(dy) < 10000) {
-        state.vely = dy*10/p;
-        state.ay = 0.5;
-        grounded = false;
-        console.log("ay");
-      } else {
-        state.vely = 20;
-      }
-    inside = true;
-    }
-  } else {
-    inside = false;
-  }
-}
+var GRAVITY = 880;
+var MAX_SPEED = 3400;
+var AIR_DRAG = 0.08;
+var CONTACT_FRICTION = 1.2;
+var GROUND_FRICTION = 2.8;
+var REST_SPEED = 48;
+var REST_ALIGN = 8;
 
-var efy = fy;
+// Firmer spring: shorter squash, snappier rebound.
+var SQUASH_K = 560;
+var SQUASH_C = 4.2;
+var MAX_PEN = rad * 0.4;
+
+var GRAB_K = 72;
+var GRAB_DAMP = 13;
+var POKE_SPEED = 580;
+var HIT_SQUASH_DECAY = 7;
+var HIT_LOOKBACK = 48;
+var HIT_DEADZONE = 480;
+var HIT_HARD_SPEED = 5400;
+var HIT_MAX_LAUNCH = 2700;
+
+var ptrX = 0;
+var ptrY = 0;
+var prevPtrX = 0;
+var prevPtrY = 0;
+var ptrPath = [];
+var ptrInitialized = false;
+var ptrInside = false;
+var grabbed = false;
+var grabMoved = false;
+var grabStartedAt = 0;
+var pointerDown = false;
+var overBall = false;
 
 var sx = 1;
 var sy = 1;
-var ray = 0;
-var n = 0;
-var bm = 0.7;
-state.ay = 0.5;
+var hitSquashX = 0;
+var hitSquashY = 0;
 
-  var pbvx = 0;
-  var lx = rad - 5;
-  var rx = width - rad + 5;
-  var elx = lx;
-  var erx = rx;
-  var xdiff = 0;
-  var ln = 0;
-  
-  var pbay = 0;
-  var pbax = 0;
+var state = {
+  x: 0,
+  y: 0,
+  velx: 0,
+  vely: 0,
+  grounded: true
+};
 
-var wallCollision = function(p) {
-// bottom bounce
-  if (state.y + state.vely >= fy && (state.y < efy || !squishing) && state.vely > 0 && !grounded) {
-    if (!squishing) { 
-      state.velx *= 0.93; 
-      if (lsquishing || rsquishing) {
-        state.vely = -state.vely*0.7;
-      } else {
-      
-      squishing = true;
-      pbvy = state.vely;
-      nvy = -state.vely*0.7;
-      state.vely = state.vely*0.17;
-      efy = (rad/2)*(pbvy/maxVel) + fy;
-      if (efy > rad/2 + fy) {
-        efy = rad/2 + fy;
-      } 
-      state.y = fy;
-      
-      
-      state.velx *= 0.9;
-      if (pbvy < 5) {
-        state.vely = 0;
-        grounded = true;
-        squishing = false;
-        state.ay = 0;
-      }
-      }
-    }
-  } else if (state.y >= efy && !grounded && state.vely > 0) {
-// alert(state.y + ", " + fy);
-  // return upwards
-    state.vely = -state.vely;
-  } else if (state.y < fy && squishing) {   
-//stop squishing
-    squishing = false;
-    state.vely = nvy;
-    state.ay = 0.5;
-  }
-console.log(sy + " " + fy + " " + state.y + " " + (efy - fy));
-//LEFT
- 
-  if (state.x + state.velx <= lx && (state.x > elx || !lsquishing) && state.velx < 0) {
-    if (!lsquishing) {
-      if (squishing) {
-        state.velx = -state.velx*0.7;
-      }  else {
-      lsquishing = true;
-      pbvx = state.velx;
-      nvx = -state.velx*0.7;
-      state.velx = state.velx*0.17;
-      elx = lx - (rad/2)*(-pbvx/maxvelx);
-      if (elx < rad/2) {
-        elx = rad/2;
-      }
-      state.x = lx;
-    }
-    }
-  } else if (state.x <= elx && state.velx < 0) {
-  // return right
-    state.velx = -state.velx;
-  } else if (state.x > lx && lsquishing) {
-//stop squishing
-    lsquishing = false;
-    state.velx = nvx;
-  }
+function layout() {
+  width = 2 * window.innerWidth;
+  height = 2 * window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
 
-//RIGHT
-  if (state.x + state.velx >= rx && (state.x < erx || !rsquishing) && state.velx > 0) {
-    if (!rsquishing) {
-    console.log("velx = " + state.velx);
-      if (squishing) {
-        state.velx = -state.velx*0.7;
-      }  else {
-      rsquishing = true;
-      pbvx = state.velx;
-      nvx = -state.velx*0.7;
-      state.velx = state.velx*0.17;
-    console.log("velxb = " + state.velx);
-      erx = rx + (rad/2)*(pbvx/maxvelx);
-      if (erx > width - rad/2) {
-        erx = width - rad/2;
-      }
-      state.x = rx;
-    }
-    }
-  } else if (state.x >= erx && state.velx > 0) {
-  // return left
-    state.velx = -state.velx;
-console.log("velxc = " + state.velx);
-  } else if (state.x < rx && rsquishing) {
-//stop squishing
-    rsquishing = false;
-    state.velx = nvx;
-  }
+  skyx = 0;
+  skyy = 0;
+  skyw = width;
+  skyh = height * 2 / 3;
+  gx = 0;
+  gy = height * 2 / 3;
+  gw = width;
+  gh = height * 1 / 3;
+  fy = gy;
+  lx = rad - 5;
+  rx = width - rad + 5;
+
+  tgrd = ctx.createLinearGradient(skyx, skyy, skyx, skyh);
+  tgrd.addColorStop(0, "white");
+  tgrd.addColorStop(1, "#0A0A0A");
+  bgrd = ctx.createLinearGradient(gx, gy, gx, height);
+  bgrd.addColorStop(0, "#0A0A0A");
+  bgrd.addColorStop(1, "#f2f2f2");
+
+  lineh = 100;
+  l1cy = height / 2 - 600;
+  l2cy = l1cy + lineh;
+  l3cy = l1cy + lineh * 2;
+  foottexty = height - 100;
+  textx = width / 2;
+  l3x = textx - 450;
+
+  ghcx = l3x + 560;
+  ghcy = l3cy;
+  ghcbw = 230;
+  ghcbh = 90;
+  ghcbx = ghcx - ghcbw / 2;
+  ghcby = ghcy - ghcbh / 2 - 30;
+
+  emcx = l3x + 1300;
+  emcy = l3cy;
+  emcbw = 190;
+  emcbh = 110;
+  emcbx = emcx - emcbw / 2;
+  emcby = emcy - emcbh / 2 - 30;
+
+  state.x = clamp(state.x || width / 2 + 500, lx, rx);
+  state.y = state.y ? Math.min(state.y, fy + MAX_PEN) : fy;
 }
 
-var squish = function(p) {
-  if(state.y > fy && state.x >= lx && state.x <= rx) {
-    sx = (state.y - fy)/(rad/2) + 1;
-    sy = 1/sx;
-  } else if(state.x < lx && state.y <= fy) {
-    sy = (lx - state.x)/(rad/2) + 1;
-    sx = 1/sy;
-  } else if(state.x > rx && state.y <= fy) {
-    sy = (state.x - rx)/(rad/2) + 1;
-    sx = 1/sy;
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function canvasPoint(clientX, clientY) {
+  var rect = canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (canvas.width / rect.width),
+    y: (clientY - rect.top) * (canvas.height / rect.height)
+  };
+}
+
+function pointInBall(px, py) {
+  var dx = (px - state.x) / (rad * sx);
+  var dy = (py - state.y) / (rad * sy);
+  return dx * dx + dy * dy <= 1;
+}
+
+function inLinkBox(px, py, x, y, w, h) {
+  return px >= x && px <= x + w && py >= y && py <= y + h;
+}
+
+function updateHover(px, py) {
+  inGithub = inLinkBox(px, py, ghcbx, ghcby, ghcbw, ghcbh);
+  inEmail = inLinkBox(px, py, emcbx, emcby, emcbw, emcbh);
+  overBall = pointInBall(px, py);
+  if (grabbed) {
+    canvas.style.cursor = "grabbing";
+  } else if (overBall) {
+    canvas.style.cursor = "grab";
+  } else if (inGithub || inEmail) {
+    canvas.style.cursor = "pointer";
   } else {
-    sx = 1;
-    sy = 1;
+    canvas.style.cursor = "default";
   }
 }
 
-var moveBall = function(p) {
- // console.log(state.vely + "," + state.y);
-console.log("velxn = " + state.velx);
-  state.x += state.velx;
-  state.y += state.vely;
-  if (!grounded) {
-    console.log("1 " + state.vely);
-    state.vely += state.ay; 
-    console.log("2 " + state.vely);
-  }  else {
-    state.velx *= 0.98;
-  }
-  state.velx += state.ax;
-  if (state.vely > maxVel) {
-    state.vely = maxVel;
-  }
- // if (Math.abs(state.vely) <= 0.4 && fy - state.y < 3) {
- //   state.vely = 0;
- // }
-}
-
-function update(progress) {
-  cursorCollision(progress);
-  wallCollision(progress);
-  moveBall(progress);
-  squish(progress);
-  if ((state.vely > 0 || state.velx != 0) && showInteractableText) 
+function wakeBall() {
+  state.grounded = false;
   showInteractableText = false;
 }
 
-var tgrd=ctx.createLinearGradient(skyx,skyy,skyx,skyh);
-var bgrd=ctx.createLinearGradient(gx,gy,gx,height);
-tgrd.addColorStop(0,"white");
-tgrd.addColorStop(1,"#0A0A0A");
-bgrd.addColorStop(0,"#0A0A0A");
-bgrd.addColorStop(1,"#f2f2f2");
+function hitAmount(speed) {
+  if (speed <= HIT_DEADZONE) {
+    return 0;
+  }
+  var t = (speed - HIT_DEADZONE) / (HIT_HARD_SPEED - HIT_DEADZONE);
+  t = clamp(t, 0, 1);
+  return t * t;
+}
 
+function mapHitSpeed(speed) {
+  return hitAmount(speed) * HIT_MAX_LAUNCH;
+}
 
+function applyHitSquashFromSwing(swing, amount) {
+  if (amount < 0.05 || swing.speed < 1) {
+    return;
+  }
+  hitSquashX = Math.max(hitSquashX, amount * 0.64 * Math.abs(swing.vx) / swing.speed);
+  hitSquashY = Math.max(hitSquashY, amount * 0.64 * Math.abs(swing.vy) / swing.speed);
+}
 
+function applyHitSquash(ix, iy) {
+  applyHitSquashFromSwing({ vx: ix, vy: iy, speed: Math.hypot(ix, iy) }, 0.35);
+}
+
+function hitBall(vx, vy, squash) {
+  if (squash !== false) {
+    applyHitSquash(vx - state.velx, vy - state.vely);
+  }
+  wakeBall();
+  state.velx = clamp(vx, -MAX_SPEED, MAX_SPEED);
+  state.vely = clamp(vy, -MAX_SPEED, MAX_SPEED);
+}
+
+function notePtrPos(x, y, now) {
+  ptrPath.push({ t: now, x: x, y: y });
+  var cutoff = now - 140;
+  while (ptrPath.length > 2 && ptrPath[0].t < cutoff) {
+    ptrPath.shift();
+  }
+}
+
+function swingVelocity() {
+  if (ptrPath.length < 2) {
+    return { vx: 0, vy: 0, speed: 0 };
+  }
+  var newest = ptrPath[ptrPath.length - 1];
+  var sample = ptrPath[0];
+  var i;
+  for (i = 0; i < ptrPath.length - 1; i += 1) {
+    if (newest.t - ptrPath[i].t >= HIT_LOOKBACK) {
+      sample = ptrPath[i];
+    }
+  }
+  var dt = (newest.t - sample.t) / 1000;
+  if (dt < 0.016) {
+    return { vx: 0, vy: 0, speed: 0 };
+  }
+  var vx = (newest.x - sample.x) / dt;
+  var vy = (newest.y - sample.y) / dt;
+  if (!isFinite(vx) || !isFinite(vy)) {
+    return { vx: 0, vy: 0, speed: 0 };
+  }
+  return { vx: vx, vy: vy, speed: Math.hypot(vx, vy) };
+}
+
+function tryBatHit() {
+  if (grabbed || !overBall) {
+    return;
+  }
+  var swing = swingVelocity();
+  var amount = hitAmount(swing.speed);
+  var mapped = mapHitSpeed(swing.speed);
+  if (amount <= 0 || mapped < 40) {
+    return;
+  }
+  var toX = state.x - ptrX;
+  var toY = state.y - ptrY;
+  var intoBall = swing.vx * toX + swing.vy * toY;
+  var entering = !ptrInside;
+  if (!entering && intoBall <= 0) {
+    return;
+  }
+  var inv = 1 / swing.speed;
+  var ballAlong = state.velx * swing.vx * inv + state.vely * swing.vy * inv;
+  if (mapped <= Math.max(ballAlong, 0) + 40) {
+    return;
+  }
+  applyHitSquashFromSwing(swing, amount);
+  hitBall(swing.vx * inv * mapped, swing.vy * inv * mapped, false);
+}
+
+function trackPointer(clientX, clientY, dt) {
+  var point = canvasPoint(clientX, clientY);
+  if (!ptrInitialized) {
+    ptrX = point.x;
+    ptrY = point.y;
+    prevPtrX = point.x;
+    prevPtrY = point.y;
+    ptrInitialized = true;
+    updateHover(ptrX, ptrY);
+    notePtrPos(ptrX, ptrY, performance.now());
+    ptrInside = overBall;
+    return;
+  }
+  prevPtrX = ptrX;
+  prevPtrY = ptrY;
+  ptrX = point.x;
+  ptrY = point.y;
+  updateHover(ptrX, ptrY);
+  notePtrPos(ptrX, ptrY, performance.now());
+
+  if (pointerDown && (Math.abs(ptrX - prevPtrX) > 6 || Math.abs(ptrY - prevPtrY) > 6)) {
+    grabMoved = true;
+  }
+
+  tryBatHit();
+  ptrInside = overBall;
+}
+
+function openHoveredLink() {
+  if (inEmail) {
+    window.open("https://mail.google.com/mail/?view=cm&fs=1&to=gabriel.jsh@gmail.com");
+    return true;
+  }
+  if (inGithub) {
+    window.open("https://github.com/gabehouse");
+    return true;
+  }
+  return false;
+}
+
+function onPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+  var point = canvasPoint(event.clientX, event.clientY);
+  ptrX = point.x;
+  ptrY = point.y;
+  prevPtrX = point.x;
+  prevPtrY = point.y;
+  ptrInitialized = true;
+  updateHover(ptrX, ptrY);
+  notePtrPos(ptrX, ptrY, performance.now());
+  pointerDown = true;
+  grabMoved = false;
+  grabStartedAt = performance.now();
+  if (overBall && !inGithub && !inEmail) {
+    grabbed = true;
+    wakeBall();
+    canvas.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+}
+
+function onPointerMove(event) {
+  var dt = lastPointerMoveAt ? (event.timeStamp - lastPointerMoveAt) / 1000 : FIXED_DT;
+  lastPointerMoveAt = event.timeStamp;
+  trackPointer(event.clientX, event.clientY, clamp(dt, 1 / 240, 0.05));
+  if (grabbed) {
+    event.preventDefault();
+  }
+}
+
+function releaseBall(wasTap) {
+  if (!grabbed) {
+    pointerDown = false;
+    return;
+  }
+  grabbed = false;
+  pointerDown = false;
+  wakeBall();
+  if (wasTap) {
+    var awayX = state.x - ptrX;
+    var awayY = state.y - ptrY;
+    var dist = Math.hypot(awayX, awayY) || 1;
+    applyHitSquash(awayX, awayY);
+    hitBall(
+      (awayX / dist) * POKE_SPEED * 0.45,
+      (awayY / dist) * POKE_SPEED * 0.35 - POKE_SPEED * 0.7,
+      false
+    );
+  } else {
+    var swing = swingVelocity();
+    var amount = hitAmount(swing.speed);
+    var mapped = mapHitSpeed(swing.speed);
+    if (amount > 0 && mapped > 40) {
+      applyHitSquashFromSwing(swing, amount);
+      hitBall(
+        swing.vx / swing.speed * mapped,
+        swing.vy / swing.speed * mapped,
+        false
+      );
+    }
+  }
+}
+
+function onPointerUp(event) {
+  var heldFor = performance.now() - grabStartedAt;
+  var wasTap = grabbed && !grabMoved && heldFor < 240;
+  var shouldOpenLink = !grabbed && !grabMoved;
+  releaseBall(wasTap);
+  updateHover(ptrX, ptrY);
+  if (shouldOpenLink) {
+    openHoveredLink();
+  }
+  if (event.cancelable) {
+    event.preventDefault();
+  }
+}
+
+function onPointerCancel() {
+  releaseBall(false);
+}
+
+var lastPointerMoveAt = 0;
+
+function handlers() {
+  canvas.style.touchAction = "none";
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerCancel);
+  canvas.addEventListener("lostpointercapture", onPointerCancel);
+  window.addEventListener("blur", function () {
+    releaseBall(false);
+  });
+}
+
+function contactAccel(pen, vel, k, c) {
+  return -k * pen - c * vel;
+}
+
+function integrate(dt) {
+  if (state.grounded && !grabbed) {
+    state.y = fy;
+    state.vely = 0;
+    state.velx *= Math.exp(-GROUND_FRICTION * dt);
+    if (Math.abs(state.velx) < 8) {
+      state.velx = 0;
+    }
+    state.x += state.velx * dt;
+    state.x = clamp(state.x, lx, rx);
+    return;
+  }
+
+  var ax = 0;
+  var ay = grabbed ? GRAVITY * 0.15 : GRAVITY;
+
+  if (grabbed) {
+    ax += (ptrX - state.x) * GRAB_K - state.velx * GRAB_DAMP;
+    ay += (ptrY - state.y) * GRAB_K - state.vely * GRAB_DAMP;
+  } else {
+    ax -= state.velx * AIR_DRAG;
+    ay -= state.vely * AIR_DRAG;
+  }
+
+  var floorPen = state.y - fy;
+  var leftPen = lx - state.x;
+  var rightPen = state.x - rx;
+
+  if (floorPen > 0) {
+    ay += contactAccel(floorPen, state.vely, SQUASH_K, SQUASH_C);
+    if (!grabbed) {
+      ax -= state.velx * (state.grounded ? GROUND_FRICTION : CONTACT_FRICTION);
+    }
+  }
+  if (leftPen > 0) {
+    ax += -contactAccel(leftPen, -state.velx, SQUASH_K, SQUASH_C);
+  }
+  if (rightPen > 0) {
+    ax += contactAccel(rightPen, state.velx, SQUASH_K, SQUASH_C);
+  }
+
+  state.velx += ax * dt;
+  state.vely += ay * dt;
+
+  var speed = Math.hypot(state.velx, state.vely);
+  if (speed > MAX_SPEED) {
+    state.velx *= MAX_SPEED / speed;
+    state.vely *= MAX_SPEED / speed;
+  }
+
+  state.x += state.velx * dt;
+  state.y += state.vely * dt;
+
+  if (state.y > fy + MAX_PEN) {
+    state.y = fy + MAX_PEN;
+    if (state.vely > 0) {
+      state.vely *= 0.2;
+    }
+  }
+  if (state.x < lx - MAX_PEN) {
+    state.x = lx - MAX_PEN;
+    if (state.velx < 0) {
+      state.velx *= 0.2;
+    }
+  }
+  if (state.x > rx + MAX_PEN) {
+    state.x = rx + MAX_PEN;
+    if (state.velx > 0) {
+      state.velx *= 0.2;
+    }
+  }
+
+  if (!grabbed && floorPen > -REST_ALIGN && Math.abs(state.vely) < REST_SPEED) {
+    if (Math.abs(state.velx) < REST_SPEED && state.y > fy - 2 && state.y < fy + REST_ALIGN) {
+      state.grounded = true;
+      state.y = fy;
+      state.vely = 0;
+      state.velx *= Math.exp(-GROUND_FRICTION * dt * 2);
+      if (Math.abs(state.velx) < 8) {
+        state.velx = 0;
+      }
+    }
+  } else if (state.y < fy - 2 || grabbed) {
+    state.grounded = false;
+  }
+}
+
+function updateSquash(dt) {
+  hitSquashX *= Math.exp(-HIT_SQUASH_DECAY * dt);
+  hitSquashY *= Math.exp(-HIT_SQUASH_DECAY * dt);
+  if (hitSquashX < 0.01) {
+    hitSquashX = 0;
+  }
+  if (hitSquashY < 0.01) {
+    hitSquashY = 0;
+  }
+
+  var floorPen = Math.max(0, state.y - fy);
+  var wallPen = Math.max(0, lx - state.x, state.x - rx);
+  var compressY = Math.min(floorPen / (rad * 0.55) + hitSquashY, 0.8);
+  var compressX = Math.min(wallPen / (rad * 0.55) + hitSquashX, 0.8);
+
+  sx = (1 + compressY) / (1 + compressX);
+  sy = (1 + compressX) / (1 + compressY);
+}
+
+function update(dt) {
+  integrate(dt);
+  updateSquash(dt);
+  if ((Math.abs(state.velx) > 12 || Math.abs(state.vely) > 12 || grabbed) && showInteractableText) {
+    showInteractableText = false;
+  }
+}
 
 function drawBackground() {
-  
-  ctx.fillStyle=tgrd;
-  ctx.fillRect(skyx,skyy,skyw,skyh);
-  ctx.fillStyle=bgrd;
-  ctx.fillRect(gx,gy,gw,gh);
+  ctx.fillStyle = tgrd;
+  ctx.fillRect(skyx, skyy, skyw, skyh);
+  ctx.fillStyle = bgrd;
+  ctx.fillRect(gx, gy, gw, gh);
 }
 
 function drawCircle() {
   ctx.beginPath();
-console.log("yuht" + state.y);
-  ctx.ellipse(state.x,state.y,rad,rad,0,0,2*Math.PI);
-  ctx.fillStyle = 'black';
-  ctx.lineWidth=8
+  ctx.ellipse(state.x, state.y, rad, rad, 0, 0, 2 * Math.PI);
+  ctx.fillStyle = "black";
+  ctx.lineWidth = 8;
   ctx.stroke();
-  ctx.fillStyle = 'yellow';
+  ctx.fillStyle = "yellow";
   ctx.fill();
 }
 
 function drawShading() {
-  var k=10*scaley;
-  var y1=state.y+5*scaley;
-  var x1=-Math.sqrt(rad*rad - (y1 - state.y)*(y1 - state.y)) + state.x
-  var y2=state.y+35*scaley;
-  var x2=Math.sqrt(rad*rad - (y2 - state.y)*(y2 - state.y)) + state.x
-  var m=-1/((y2 - y1)/(x2 - x1))
-  var mx = (x1 + x2)/2
-  var my = (y1 + y2)/2
-  var cx = mx - k
-  var cy = my - k*m
+  var k = 10 * 2;
+  var y1 = state.y + 5 * 2;
+  var x1 = -Math.sqrt(rad * rad - (y1 - state.y) * (y1 - state.y)) + state.x;
+  var y2 = state.y + 35 * 2;
+  var x2 = Math.sqrt(rad * rad - (y2 - state.y) * (y2 - state.y)) + state.x;
+  var m = -1 / ((y2 - y1) / (x2 - x1));
+  var mx = (x1 + x2) / 2;
+  var my = (y1 + y2) / 2;
+  var cx = mx - k;
+  var cy = my - k * m;
   ctx.beginPath();
-
-  ctx.moveTo(x1,y1)
-  ctx.strokeStyle = 'black'
-  ctx.quadraticCurveTo(cx,cy,x2,y2)
-
-  var a1=Math.atan((y2 - state.y)/(x2 - state.x))
-  var a2=Math.atan((y1 - state.y)/(x1 - state.x)) - Math.PI
-  var a = ctx.arc(state.x,state.y,rad,a1,a2)
-  ctx.fillStyle = "rgba(102, 102, 102, 0.6)"
-  ctx.fill()
-
+  ctx.moveTo(x1, y1);
+  ctx.strokeStyle = "black";
+  ctx.quadraticCurveTo(cx, cy, x2, y2);
+  var a1 = Math.atan((y2 - state.y) / (x2 - state.x));
+  var a2 = Math.atan((y1 - state.y) / (x1 - state.x)) - Math.PI;
+  ctx.arc(state.x, state.y, rad, a1, a2);
+  ctx.fillStyle = "rgba(102, 102, 102, 0.6)";
+  ctx.fill();
 }
 
 function drawShadow() {
-  ctx.beginPath()
-  ctx.moveTo(state.x,state.y);
-  var xr = rad*(1 + 0.5*(fy - state.y)/fy);
-  var yr = (rad/3)*(1 + 0.3*(fy - state.y)/fy);
+  ctx.beginPath();
+  var xr = rad * (1 + 0.5 * (fy - state.y) / fy);
+  var yr = (rad / 3) * (1 + 0.3 * (fy - state.y) / fy);
   ctx.ellipse(state.x, fy + rad, xr, yr, 0, 0, 2 * Math.PI);
-  ctx.fillStyle = "rgba(20, 20, 20, 0.8)"
+  ctx.fillStyle = "rgba(20, 20, 20, 0.8)";
   ctx.fill();
 }
-var lineh = 100;
-var l1cy = height/2 - 600;
-var l2cy = l1cy  + lineh;
-var l3cy = l1cy  + lineh*2;
-var l4cy = l1cy + lineh*3;
-var foottexty = height - 100;
-var textx = width/2;
-var l3x = textx - 450;
-
-var ghcx = l3x + 560;
-var ghcy = l3cy;
-var ghcbw = 230;
-var ghcbh = 90;
-var ghcbx = ghcx - ghcbw/2;
-var ghcby = ghcy - ghcbh/2 - 30;
-
-var emcx = l3x + 1300;
-var emcy = l3cy;
-var emcbw = 190;
-var emcbh = 110;
-var emcbx = emcx - emcbw/2;
-var emcby = emcy - emcbh/2 - 30;
-var d = (new Date()).getFullYear();
-
-
 
 function drawText() {
-  ctx.textAlign="center"; 
+  ctx.textAlign = "center";
   ctx.fillStyle = "black";
   ctx.font = "80px Georgia";
-  ctx.fillText("Hello,",textx + 40,l1cy);
-  ctx.fillText("I'm a computer science graduate from University of Waterloo.",textx,l2cy);
-  ctx.fillText("Feel free to check out my ",l3x ,l3cy);
-  ctx.fillText("or send me an ",l3x +950, l3cy);
- // ctx.fillText(", or bounce off.",textx + 975, l3cy);
-// ctx.fillStyle = "blue";
-//  ctx.fillRect(ghcbx, ghcby, ghcbw, ghcbh);
-//  ctx.fillRect(emcbx,emcby, emcbw,emcbh);
-  ctx.fillText(".",l3x + 1410,l3cy); 
+  ctx.fillText("Hello,", textx + 40, l1cy);
+  ctx.fillText("I'm a computer science graduate from University of Waterloo.", textx, l2cy);
+  ctx.fillText("Feel free to check out my ", l3x, l3cy);
+  ctx.fillText("or send me an ", l3x + 950, l3cy);
+  ctx.fillText(".", l3x + 1410, l3cy);
   ctx.fillStyle = "yellow";
-  ghcx = l3x + 560;
-  ctx.fillText("github",ghcx,ghcy);
-  emcx = l3x + 1300;
-  ctx.fillText("email",emcx,emcy);
-  if (inGithub) { 
-    ctx.fillRect(ghcbx,ghcby+ghcbh,ghcbw,20);
-  } else if (inEmail){
-    ctx.fillRect(emcbx,emcby+emcbh,emcbw,20);
+  ctx.fillText("github", ghcx, ghcy);
+  ctx.fillText("email", emcx, emcy);
+  if (inGithub) {
+    ctx.fillRect(ghcbx, ghcby + ghcbh, ghcbw, 20);
+  } else if (inEmail) {
+    ctx.fillRect(emcbx, emcby + emcbh, emcbw, 20);
   }
   ctx.font = "30px Georgia";
-  var interactTextX = state.x;
-  var interactTextY = state.y - 200;
-
   if (showInteractableText) {
-    ctx.fillText("play with me", interactTextX, interactTextY);
+    ctx.fillText("flick or drag", state.x, state.y - 200);
   }
+}
 
-//footer
-  ctx.font = "35px Georgia";
-  ctx.fillStyle = "grey";
-
+function drawDebug() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.strokeStyle = "rgba(255, 80, 80, 0.8)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, fy);
+  ctx.lineTo(width, fy);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(lx, 0);
+  ctx.lineTo(lx, height);
+  ctx.moveTo(rx, 0);
+  ctx.lineTo(rx, height);
+  ctx.stroke();
 }
 
 function draw() {
-
   drawBackground();
   drawText();
-  ctx.setTransform(sx,0,0,1,-state.x*(sx - 1),0);
+  ctx.setTransform(sx, 0, 0, 1, -state.x * (sx - 1), 0);
   drawShadow();
-  ctx.setTransform(sx,0,0,sy,-state.x*(sx - 1),(state.y)*(1 - sy));
- // ctx.transform(1,0,0,1,state.x,0);
+  ctx.setTransform(sx, 0, 0, sy, -state.x * (sx - 1), state.y * (1 - sy));
   drawCircle();
-  
   drawShading();
-  ctx.setTransform(1,0,0,1,0,0);
-  
-if (lines) {
-ctx.beginPath();
-ctx.moveTo(0,fy);
-ctx.lineTo(width,fy);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(0,efy);
-ctx.lineTo(width,efy);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(0,state.y);
-ctx.lineTo(width,state.y);
-ctx.beginPath();
-ctx.moveTo(0,fy + rad);
-ctx.lineTo(width,fy + rad);
-ctx.stroke();
-
-ctx.beginPath();
-ctx.moveTo(lx,0);
-ctx.lineTo(lx,height);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(elx,0);
-ctx.lineTo(elx,height);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(state.x,0);
-ctx.lineTo(state.x,height);
-ctx.stroke();
-
-ctx.beginPath();
-ctx.moveTo(rx,0);
-ctx.lineTo(rx,height);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(erx,0);
-ctx.lineTo(erx,height);
-ctx.stroke();
-ctx.beginPath();
-ctx.stroke();
-
-ctx.beginPath();
-ctx.moveTo(0,state.y);
-ctx.lineTo(width,state.y);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(0,efy);
-ctx.lineTo(width,efy);
-ctx.stroke();
-}
-
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (SHOW_DEBUG) {
+    drawDebug();
+  }
 }
 
 function loop(timestamp) {
+  if (!lastRender) {
+    lastRender = timestamp;
+  }
+  var frameDt = Math.min((timestamp - lastRender) / 1000, MAX_FRAME_DT);
+  lastRender = timestamp;
+  accumulator += frameDt;
 
+  var steps = 0;
+  while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
+    update(FIXED_DT);
+    accumulator -= FIXED_DT;
+    steps += 1;
+  }
+  if (steps === MAX_STEPS) {
+    accumulator = 0;
+  }
 
-  var progress = timestamp - lastRender
-
-  update(progress)
-  draw()
-
-  
-  lastRender = timestamp
-  window.requestAnimationFrame(loop)
-
+  draw();
+  window.requestAnimationFrame(loop);
 }
-var lastRender = 0
-window.requestAnimationFrame(loop)
+
+window.onresize = function () {
+  var wasGrounded = state.grounded;
+  layout();
+  if (wasGrounded) {
+    state.y = fy;
+    state.vely = 0;
+  }
+};
+
+layout();
+handlers();
+var lastRender = 0;
+var accumulator = 0;
+window.requestAnimationFrame(loop);

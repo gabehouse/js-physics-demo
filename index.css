@@ -11,7 +11,8 @@ canvas {
   background: #000;
   height: 100%;
   width: 100%;
-  display: block
+  display: block;
+  touch-action: none;
 }
 h3 {
   font-size:22px;
