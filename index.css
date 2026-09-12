@@ -7,6 +7,46 @@ body {
   margin: 0;
   padding: 0;
 }
+
+.intro {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  padding: 1.15rem 1.4rem 0;
+  max-width: 22rem;
+  pointer-events: none;
+  font-family: Georgia, "Times New Roman", serif;
+  color: #1a1a1a;
+}
+
+.intro-name {
+  margin: 0 0 0.3rem;
+  font-size: 1.05rem;
+}
+
+.intro-bio {
+  margin: 0 0 0.45rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #333;
+}
+
+.intro-links {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.intro-links a {
+  pointer-events: auto;
+  color: #1a1a1a;
+  margin-right: 0.85rem;
+}
+
+.intro-links a:hover {
+  color: #000;
+}
+
 canvas {
   background: #000;
   height: 100%;

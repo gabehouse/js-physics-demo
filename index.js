@@ -11,16 +11,7 @@ var lx, rx;
 var tgrd, bgrd;
 
 var rad = 150;
-var showInteractableText = true;
 var SHOW_DEBUG = false;
-
-var inGithub = false;
-var inEmail = false;
-
-var textx;
-var l1cy, l2cy, l3cy, lineh, l3x, foottexty;
-var ghcx, ghcy, ghcbw, ghcbh, ghcbx, ghcby;
-var emcx, emcy, emcbw, emcbh, emcbx, emcby;
 
 // Fixed-step simulation so motion is the same on 60 Hz and 144 Hz displays.
 var FIXED_DT = 1 / 120;
@@ -182,28 +173,6 @@ function layout() {
   bgrd.addColorStop(0, "#0A0A0A");
   bgrd.addColorStop(1, "#f2f2f2");
 
-  lineh = 100;
-  l1cy = height / 2 - 600;
-  l2cy = l1cy + lineh;
-  l3cy = l1cy + lineh * 2;
-  foottexty = height - 100;
-  textx = width / 2;
-  l3x = textx - 450;
-
-  ghcx = l3x + 560;
-  ghcy = l3cy;
-  ghcbw = 230;
-  ghcbh = 90;
-  ghcbx = ghcx - ghcbw / 2;
-  ghcby = ghcy - ghcbh / 2 - 30;
-
-  emcx = l3x + 1300;
-  emcy = l3cy;
-  emcbw = 190;
-  emcbh = 110;
-  emcbx = emcx - emcbw / 2;
-  emcby = emcy - emcbh / 2 - 30;
-
   state.x = clamp(state.x || width / 2 + 500, lx, rx);
   state.y = state.y ? Math.min(state.y, fy + MAX_PEN) : fy;
 }
@@ -226,20 +195,12 @@ function pointInBall(px, py) {
   return dx * dx + dy * dy <= 1;
 }
 
-function inLinkBox(px, py, x, y, w, h) {
-  return px >= x && px <= x + w && py >= y && py <= y + h;
-}
-
 function updateHover(px, py) {
-  inGithub = inLinkBox(px, py, ghcbx, ghcby, ghcbw, ghcbh);
-  inEmail = inLinkBox(px, py, emcbx, emcby, emcbw, emcbh);
   overBall = pointInBall(px, py);
   if (grabbed) {
     canvas.style.cursor = "grabbing";
   } else if (overBall) {
     canvas.style.cursor = "grab";
-  } else if (inGithub || inEmail) {
-    canvas.style.cursor = "pointer";
   } else {
     canvas.style.cursor = "default";
   }
@@ -247,7 +208,6 @@ function updateHover(px, py) {
 
 function wakeBall() {
   state.grounded = false;
-  showInteractableText = false;
 }
 
 function topBounceSpeed() {
@@ -375,18 +335,6 @@ function trackPointer(clientX, clientY, dt) {
   ptrInside = overBall;
 }
 
-function openHoveredLink() {
-  if (inEmail) {
-    window.open("https://mail.google.com/mail/?view=cm&fs=1&to=gabriel.jsh@gmail.com");
-    return true;
-  }
-  if (inGithub) {
-    window.open("https://github.com/gabehouse");
-    return true;
-  }
-  return false;
-}
-
 function onPointerDown(event) {
   if (event.pointerType === "mouse" && event.button !== 0) {
     return;
@@ -402,7 +350,7 @@ function onPointerDown(event) {
   pointerDown = true;
   grabMoved = false;
   grabStartedAt = performance.now();
-  if (overBall && !inGithub && !inEmail) {
+  if (overBall) {
     grabbed = true;
     wakeBall();
     canvas.setPointerCapture(event.pointerId);
@@ -450,12 +398,8 @@ function releaseBall(wasTap) {
 function onPointerUp(event) {
   var heldFor = performance.now() - grabStartedAt;
   var wasTap = grabbed && !grabMoved && heldFor < 240;
-  var shouldOpenLink = !grabbed && !grabMoved;
   releaseBall(wasTap);
   updateHover(ptrX, ptrY);
-  if (shouldOpenLink) {
-    openHoveredLink();
-  }
   if (event.cancelable) {
     event.preventDefault();
   }
@@ -622,9 +566,6 @@ function updateSquash(dt) {
 function update(dt) {
   integrate(dt);
   updateSquash(dt);
-  if ((Math.abs(state.velx) > 12 || Math.abs(state.vely) > 12 || grabbed) && showInteractableText) {
-    showInteractableText = false;
-  }
 }
 
 function drawBackground() {
@@ -692,29 +633,6 @@ function drawShadow() {
   ctx.fill();
 }
 
-function drawText() {
-  ctx.textAlign = "center";
-  ctx.fillStyle = "black";
-  ctx.font = "80px Georgia";
-  ctx.fillText("Hello,", textx + 40, l1cy);
-  ctx.fillText("I'm a computer science graduate from University of Waterloo.", textx, l2cy);
-  ctx.fillText("Feel free to check out my ", l3x, l3cy);
-  ctx.fillText("or send me an ", l3x + 950, l3cy);
-  ctx.fillText(".", l3x + 1410, l3cy);
-  ctx.fillStyle = "yellow";
-  ctx.fillText("github", ghcx, ghcy);
-  ctx.fillText("email", emcx, emcy);
-  if (inGithub) {
-    ctx.fillRect(ghcbx, ghcby + ghcbh, ghcbw, 20);
-  } else if (inEmail) {
-    ctx.fillRect(emcbx, emcby + emcbh, emcbw, 20);
-  }
-  ctx.font = "30px Georgia";
-  if (showInteractableText) {
-    ctx.fillText("flick or drag", view.x, view.y - 200);
-  }
-}
-
 function drawDebug() {
   setWorldTransform(1, 1, 0, 0);
   ctx.strokeStyle = "rgba(255, 80, 80, 0.8)";
@@ -735,7 +653,6 @@ function draw() {
   var pivot = squashPivot();
   setWorldTransform(1, 1, 0, 0);
   drawBackground();
-  drawText();
   setWorldTransform(view.sx, 1, pivot.x * (1 - view.sx), 0);
   drawShadow();
   setWorldTransform(view.sx, view.sy, pivot.x * (1 - view.sx), pivot.y * (1 - view.sy));
