@@ -1,5 +1,8 @@
 var canvas = document.getElementById("canvas");
-var ctx = canvas.getContext("2d");
+var ctx = canvas.getContext("2d", {
+  alpha: false,
+  desynchronized: true
+});
 
 var width;
 var height;
@@ -24,9 +27,9 @@ var FIXED_DT = 1 / 120;
 var MAX_FRAME_DT = 0.05;
 var MAX_STEPS = 8;
 
-var GRAVITY = 880;
+var GRAVITY = 2020;
 var MAX_SPEED = 4200;
-var AIR_DRAG = 0.08;
+var AIR_DRAG = 0.06;
 var CONTACT_FRICTION = 1.2;
 var GROUND_FRICTION = 2.8;
 var REST_SPEED = 48;
@@ -40,7 +43,7 @@ var MAX_PEN = rad * 0.32;
 
 var GRAB_K = 72;
 var GRAB_DAMP = 13;
-var POKE_SPEED = 580;
+var POKE_SPEED = 680;
 var HIT_LOOKBACK = 56;
 var HIT_NOISE = 70;
 // Fastest downward strike we expect (canvas px/s). Maps to a bounce near the top.
@@ -61,6 +64,8 @@ var overBall = false;
 
 var sx = 1;
 var sy = 1;
+var drawScaleX = 1;
+var drawScaleY = 1;
 
 var state = {
   x: 0,
@@ -70,11 +75,42 @@ var state = {
   grounded: true
 };
 
+var prevPose = { x: 0, y: 0, sx: 1, sy: 1 };
+var view = { x: 0, y: 0, sx: 1, sy: 1 };
+
+function capturePose(target) {
+  target.x = state.x;
+  target.y = state.y;
+  target.sx = sx;
+  target.sy = sy;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function setWorldTransform(a, d, e, f) {
+  ctx.setTransform(drawScaleX * a, 0, 0, drawScaleY * d, drawScaleX * e, drawScaleY * f);
+}
+
 function layout() {
-  width = 2 * window.innerWidth;
-  height = 2 * window.innerHeight;
-  canvas.width = width;
-  canvas.height = height;
+  var cssW = window.innerWidth;
+  var cssH = window.innerHeight;
+  width = 2 * cssW;
+  height = 2 * cssH;
+
+  var dpr = window.devicePixelRatio || 1;
+  if (dpr > 1.25) {
+    dpr = 1.25;
+  }
+  var maxPixels = 2560 * 1440;
+  if (cssW * cssH * dpr * dpr > maxPixels) {
+    dpr = Math.sqrt(maxPixels / Math.max(cssW * cssH, 1));
+  }
+  canvas.width = Math.max(1, Math.round(cssW * dpr));
+  canvas.height = Math.max(1, Math.round(cssH * dpr));
+  drawScaleX = canvas.width / width;
+  drawScaleY = canvas.height / height;
 
   skyx = 0;
   skyy = 0;
@@ -128,8 +164,8 @@ function clamp(value, min, max) {
 function canvasPoint(clientX, clientY) {
   var rect = canvas.getBoundingClientRect();
   return {
-    x: (clientX - rect.left) * (canvas.width / rect.width),
-    y: (clientY - rect.top) * (canvas.height / rect.height)
+    x: (clientX - rect.left) * (width / rect.width),
+    y: (clientY - rect.top) * (height / rect.height)
   };
 }
 
@@ -491,7 +527,7 @@ function drawBackground() {
 
 function drawCircle() {
   ctx.beginPath();
-  ctx.ellipse(state.x, state.y, rad, rad, 0, 0, 2 * Math.PI);
+  ctx.ellipse(view.x, view.y, rad, rad, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "black";
   ctx.lineWidth = 8;
   ctx.stroke();
@@ -501,10 +537,10 @@ function drawCircle() {
 
 function drawShading() {
   var k = 10 * 2;
-  var y1 = state.y + 5 * 2;
-  var x1 = -Math.sqrt(rad * rad - (y1 - state.y) * (y1 - state.y)) + state.x;
-  var y2 = state.y + 35 * 2;
-  var x2 = Math.sqrt(rad * rad - (y2 - state.y) * (y2 - state.y)) + state.x;
+  var y1 = view.y + 5 * 2;
+  var x1 = -Math.sqrt(rad * rad - (y1 - view.y) * (y1 - view.y)) + view.x;
+  var y2 = view.y + 35 * 2;
+  var x2 = Math.sqrt(rad * rad - (y2 - view.y) * (y2 - view.y)) + view.x;
   var m = -1 / ((y2 - y1) / (x2 - x1));
   var mx = (x1 + x2) / 2;
   var my = (y1 + y2) / 2;
@@ -514,18 +550,18 @@ function drawShading() {
   ctx.moveTo(x1, y1);
   ctx.strokeStyle = "black";
   ctx.quadraticCurveTo(cx, cy, x2, y2);
-  var a1 = Math.atan((y2 - state.y) / (x2 - state.x));
-  var a2 = Math.atan((y1 - state.y) / (x1 - state.x)) - Math.PI;
-  ctx.arc(state.x, state.y, rad, a1, a2);
+  var a1 = Math.atan((y2 - view.y) / (x2 - view.x));
+  var a2 = Math.atan((y1 - view.y) / (x1 - view.x)) - Math.PI;
+  ctx.arc(view.x, view.y, rad, a1, a2);
   ctx.fillStyle = "rgba(102, 102, 102, 0.6)";
   ctx.fill();
 }
 
 function drawShadow() {
   ctx.beginPath();
-  var xr = rad * (1 + 0.5 * (fy - state.y) / fy);
-  var yr = (rad / 3) * (1 + 0.3 * (fy - state.y) / fy);
-  ctx.ellipse(state.x, fy + rad, xr, yr, 0, 0, 2 * Math.PI);
+  var xr = rad * (1 + 0.5 * (fy - view.y) / fy);
+  var yr = (rad / 3) * (1 + 0.3 * (fy - view.y) / fy);
+  ctx.ellipse(view.x, fy + rad, xr, yr, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "rgba(20, 20, 20, 0.8)";
   ctx.fill();
 }
@@ -549,12 +585,12 @@ function drawText() {
   }
   ctx.font = "30px Georgia";
   if (showInteractableText) {
-    ctx.fillText("flick or drag", state.x, state.y - 200);
+    ctx.fillText("flick or drag", view.x, view.y - 200);
   }
 }
 
 function drawDebug() {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  setWorldTransform(1, 1, 0, 0);
   ctx.strokeStyle = "rgba(255, 80, 80, 0.8)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -570,22 +606,32 @@ function drawDebug() {
 }
 
 function draw() {
+  setWorldTransform(1, 1, 0, 0);
   drawBackground();
   drawText();
-  ctx.setTransform(sx, 0, 0, 1, -state.x * (sx - 1), 0);
+  setWorldTransform(view.sx, 1, -view.x * (view.sx - 1), 0);
   drawShadow();
-  ctx.setTransform(sx, 0, 0, sy, -state.x * (sx - 1), state.y * (1 - sy));
+  setWorldTransform(view.sx, view.sy, -view.x * (view.sx - 1), view.y * (1 - view.sy));
   drawCircle();
   drawShading();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  setWorldTransform(1, 1, 0, 0);
   if (SHOW_DEBUG) {
     drawDebug();
   }
 }
 
+function syncView(alpha) {
+  view.x = lerp(prevPose.x, state.x, alpha);
+  view.y = lerp(prevPose.y, state.y, alpha);
+  view.sx = lerp(prevPose.sx, sx, alpha);
+  view.sy = lerp(prevPose.sy, sy, alpha);
+}
+
 function loop(timestamp) {
   if (!lastRender) {
     lastRender = timestamp;
+    capturePose(prevPose);
+    capturePose(view);
   }
   var frameDt = Math.min((timestamp - lastRender) / 1000, MAX_FRAME_DT);
   lastRender = timestamp;
@@ -593,14 +639,17 @@ function loop(timestamp) {
 
   var steps = 0;
   while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
+    capturePose(prevPose);
     update(FIXED_DT);
     accumulator -= FIXED_DT;
     steps += 1;
   }
   if (steps === MAX_STEPS) {
     accumulator = 0;
+    capturePose(prevPose);
   }
 
+  syncView(clamp(accumulator / FIXED_DT, 0, 1));
   draw();
   window.requestAnimationFrame(loop);
 }
@@ -612,9 +661,13 @@ window.onresize = function () {
     state.y = fy;
     state.vely = 0;
   }
+  capturePose(prevPose);
+  capturePose(view);
 };
 
 layout();
+capturePose(prevPose);
+capturePose(view);
 handlers();
 var lastRender = 0;
 var accumulator = 0;
