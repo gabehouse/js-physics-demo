@@ -33,14 +33,13 @@ var REST_SPEED = 48;
 var REST_ALIGN = 8;
 
 // Firmer spring: shorter squash, snappier rebound.
-var SQUASH_K = 560;
-var SQUASH_C = 4.2;
-var MAX_PEN = rad * 0.4;
+var SQUASH_K = 720;
+var SQUASH_C = 5.2;
+var MAX_PEN = rad * 0.32;
 
 var GRAB_K = 72;
 var GRAB_DAMP = 13;
 var POKE_SPEED = 580;
-var HIT_SQUASH_DECAY = 7;
 var HIT_LOOKBACK = 48;
 var HIT_DEADZONE = 480;
 var HIT_HARD_SPEED = 5400;
@@ -61,8 +60,6 @@ var overBall = false;
 
 var sx = 1;
 var sy = 1;
-var hitSquashX = 0;
-var hitSquashY = 0;
 
 var state = {
   x: 0,
@@ -178,22 +175,7 @@ function mapHitSpeed(speed) {
   return hitAmount(speed) * HIT_MAX_LAUNCH;
 }
 
-function applyHitSquashFromSwing(swing, amount) {
-  if (amount < 0.05 || swing.speed < 1) {
-    return;
-  }
-  hitSquashX = Math.max(hitSquashX, amount * 0.64 * Math.abs(swing.vx) / swing.speed);
-  hitSquashY = Math.max(hitSquashY, amount * 0.64 * Math.abs(swing.vy) / swing.speed);
-}
-
-function applyHitSquash(ix, iy) {
-  applyHitSquashFromSwing({ vx: ix, vy: iy, speed: Math.hypot(ix, iy) }, 0.35);
-}
-
-function hitBall(vx, vy, squash) {
-  if (squash !== false) {
-    applyHitSquash(vx - state.velx, vy - state.vely);
-  }
+function hitBall(vx, vy) {
   wakeBall();
   state.velx = clamp(vx, -MAX_SPEED, MAX_SPEED);
   state.vely = clamp(vy, -MAX_SPEED, MAX_SPEED);
@@ -253,8 +235,7 @@ function tryBatHit() {
   if (mapped <= Math.max(ballAlong, 0) + 40) {
     return;
   }
-  applyHitSquashFromSwing(swing, amount);
-  hitBall(swing.vx * inv * mapped, swing.vy * inv * mapped, false);
+  hitBall(swing.vx * inv * mapped, swing.vy * inv * mapped);
 }
 
 function trackPointer(clientX, clientY, dt) {
@@ -341,22 +322,18 @@ function releaseBall(wasTap) {
     var awayX = state.x - ptrX;
     var awayY = state.y - ptrY;
     var dist = Math.hypot(awayX, awayY) || 1;
-    applyHitSquash(awayX, awayY);
     hitBall(
       (awayX / dist) * POKE_SPEED * 0.45,
-      (awayY / dist) * POKE_SPEED * 0.35 - POKE_SPEED * 0.7,
-      false
+      (awayY / dist) * POKE_SPEED * 0.35 - POKE_SPEED * 0.7
     );
   } else {
     var swing = swingVelocity();
     var amount = hitAmount(swing.speed);
     var mapped = mapHitSpeed(swing.speed);
     if (amount > 0 && mapped > 40) {
-      applyHitSquashFromSwing(swing, amount);
       hitBall(
         swing.vx / swing.speed * mapped,
-        swing.vy / swing.speed * mapped,
-        false
+        swing.vy / swing.speed * mapped
       );
     }
   }
@@ -486,19 +463,10 @@ function integrate(dt) {
 }
 
 function updateSquash(dt) {
-  hitSquashX *= Math.exp(-HIT_SQUASH_DECAY * dt);
-  hitSquashY *= Math.exp(-HIT_SQUASH_DECAY * dt);
-  if (hitSquashX < 0.01) {
-    hitSquashX = 0;
-  }
-  if (hitSquashY < 0.01) {
-    hitSquashY = 0;
-  }
-
   var floorPen = Math.max(0, state.y - fy);
   var wallPen = Math.max(0, lx - state.x, state.x - rx);
-  var compressY = Math.min(floorPen / (rad * 0.55) + hitSquashY, 0.8);
-  var compressX = Math.min(wallPen / (rad * 0.55) + hitSquashX, 0.8);
+  var compressY = Math.min(floorPen / (rad * 0.9), 0.42);
+  var compressX = Math.min(wallPen / (rad * 0.9), 0.42);
 
   sx = (1 + compressY) / (1 + compressX);
   sy = (1 + compressX) / (1 + compressY);
