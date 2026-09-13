@@ -14,7 +14,9 @@ var GRAVITY = 2020;
 var HIT_POWER = 15;
 var MAX_SPEED = 4200 * HIT_POWER;
 var AIR_DRAG = 0.06;
-var CONTACT_FRICTION = 1.2;
+var CONTACT_FRICTION = 0.55;
+var CONTACT_COUPLE = 0.22;
+var WALL_SPIN_LOSS = 0.78;
 var GROUND_FRICTION = 2.8;
 var REST_SPEED = 48;
 var REST_ALIGN = 8;
@@ -1817,6 +1819,62 @@ function contactAccel(pen, vel, k, c) {
   return -k * pen - c * vel;
 }
 
+function contactSlip(ball, nx, ny, nz) {
+  var rx = -nx * rad;
+  var ry = -ny * rad;
+  var rz = -nz * rad;
+  var cx = ball.velx + (ball.wy * rz - ball.wz * ry);
+  var cy = ball.vely + (ball.wz * rx - ball.wx * rz);
+  var cz = ball.velz + (ball.wx * ry - ball.wy * rx);
+  var cn = cx * nx + cy * ny + cz * nz;
+  return {
+    rx: rx,
+    ry: ry,
+    rz: rz,
+    x: cx - cn * nx,
+    y: cy - cn * ny,
+    z: cz - cn * nz
+  };
+}
+
+function dampWallSpin(ball, nx, ny, nz, amount) {
+  if (amount <= 0) {
+    return;
+  }
+  var wn = ball.wx * nx + ball.wy * ny + ball.wz * nz;
+  ball.wx -= (ball.wx - wn * nx) * amount;
+  ball.wy -= (ball.wy - wn * ny) * amount;
+  ball.wz -= (ball.wz - wn * nz) * amount;
+  clampSpin(ball);
+}
+
+function applyFrictionImpulse(ball, nx, ny, nz, jn) {
+  if (isGrabbed(ball)) {
+    return;
+  }
+  var slip = contactSlip(ball, nx, ny, nz);
+  var speed = hypot3(slip.x, slip.y, slip.z);
+  if (speed > 1e-6 && CONTACT_FRICTION > 0 && CONTACT_COUPLE > 0) {
+    // Sphere contact: Δv_slip = Jt * (1 + R²/I). Only a fraction of that
+    // stick impulse is applied so backspin does not become a floor-launch.
+    var denom = 1 + (rad * rad) / BALL_I;
+    var jStick = speed / denom;
+    var jFric = Math.min(jStick, CONTACT_FRICTION * Math.abs(jn)) * CONTACT_COUPLE;
+    var scale = -jFric / speed;
+    var jx = slip.x * scale;
+    var jy = slip.y * scale;
+    var jz = slip.z * scale;
+    ball.velx += jx;
+    ball.vely += jy;
+    ball.velz += jz;
+    ball.wx += (slip.ry * jz - slip.rz * jy) / BALL_I;
+    ball.wy += (slip.rz * jx - slip.rx * jz) / BALL_I;
+    ball.wz += (slip.rx * jy - slip.ry * jx) / BALL_I;
+  }
+  // Deformation eats the scrape spin instead of converting it all into speed.
+  dampWallSpin(ball, nx, ny, nz, WALL_SPIN_LOSS);
+}
+
 function addSpringContact(ball, nx, ny, nz, pen, accel) {
   if (pen <= 0) {
     return;
@@ -1829,25 +1887,16 @@ function addSpringContact(ball, nx, ny, nz, pen, accel) {
   if (isGrabbed(ball)) {
     return;
   }
-  var rx = -nx * rad;
-  var ry = -ny * rad;
-  var rz = -nz * rad;
-  var cx = ball.velx + (ball.wy * rz - ball.wz * ry);
-  var cy = ball.vely + (ball.wz * rx - ball.wx * rz);
-  var cz = ball.velz + (ball.wx * ry - ball.wy * rx);
-  var cn = cx * nx + cy * ny + cz * nz;
-  var slipX = cx - cn * nx;
-  var slipY = cy - cn * ny;
-  var slipZ = cz - cn * nz;
-  var gx = -SPIN_FRICTION * slipX;
-  var gy = -SPIN_FRICTION * slipY;
-  var gz = -SPIN_FRICTION * slipZ;
+  var slip = contactSlip(ball, nx, ny, nz);
+  var gx = -SPIN_FRICTION * slip.x;
+  var gy = -SPIN_FRICTION * slip.y;
+  var gz = -SPIN_FRICTION * slip.z;
   accel.x += gx;
   accel.y += gy;
   accel.z += gz;
-  accel.ax += (ry * gz - rz * gy) / BALL_I;
-  accel.ay += (rz * gx - rx * gz) / BALL_I;
-  accel.az += (rx * gy - ry * gx) / BALL_I;
+  accel.ax += (slip.ry * gz - slip.rz * gy) / BALL_I;
+  accel.ay += (slip.rz * gx - slip.rx * gz) / BALL_I;
+  accel.az += (slip.rx * gy - slip.ry * gx) / BALL_I;
 }
 
 function resolveMaxPen(ball, nx, ny, nz, rest) {
@@ -1864,6 +1913,9 @@ function resolveMaxPen(ball, nx, ny, nz, rest) {
       ball.velx -= nx * bounce;
       ball.vely -= ny * bounce;
       ball.velz -= nz * bounce;
+      // Flip only the normal speed; grip has to convert leftover spin here
+      // or topspin into the wall stays ω and Magnus-lifts on the way back.
+      applyFrictionImpulse(ball, nx, ny, nz, -bounce);
     }
   }
 }

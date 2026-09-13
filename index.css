@@ -22,31 +22,11 @@ body {
   text-shadow: 0 1px 10px rgba(255, 255, 255, 0.9);
 }
 
-.intro-name {
-  margin: 0 0 0.3rem;
-  font-size: 1.05rem;
-}
-
 .intro-bio {
-  margin: 0 0 0.45rem;
+  margin: 0;
   font-size: 0.8rem;
   line-height: 1.4;
   color: #222;
-}
-
-.intro-links {
-  margin: 0;
-  font-size: 0.8rem;
-}
-
-.intro-links a {
-  pointer-events: auto;
-  color: #1a1a1a;
-  margin-right: 0.85rem;
-}
-
-.intro-links a:hover {
-  color: #000;
 }
 
 canvas {
