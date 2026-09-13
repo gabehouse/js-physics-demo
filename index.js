@@ -141,6 +141,7 @@ var _camUp = new THREE.Vector3();
 var _courtFwd = new THREE.Vector3();
 var _camFwdFlat = new THREE.Vector3();
 var _camRightFlat = new THREE.Vector3();
+var _shadowPt = new THREE.Vector3();
 
 var camYaw = 0;
 var camPitch = 0;
@@ -284,17 +285,84 @@ function syncCourtMeshes() {
   camera.updateProjectionMatrix();
   clampCameraToCourt();
   applyCameraView();
-
-  light.position.set(-ROOM_W * 0.35, Math.max(5000, ROOM_H * 3.1), WALL_FRONT + 900);
-  light.target.position.set(0, 0, COURT_Z);
-  light.shadow.camera.near = 100;
-  light.shadow.camera.far = Math.max(20000, ROOM_D * 2);
-  light.shadow.camera.left = -ROOM_W;
-  light.shadow.camera.right = ROOM_W;
-  light.shadow.camera.top = 4000 * ARENA_SCALE;
-  light.shadow.camera.bottom = WALL_BACK - 3000;
-  light.shadow.camera.updateProjectionMatrix();
+  fitShadowCamera();
   rebuildDebugBounds();
+}
+
+function fitShadowCamera() {
+  if (!light) {
+    return;
+  }
+  var wallH = wallVisualHeight();
+  light.position.set(
+    -ROOM_W * 0.42,
+    wallH + Math.max(2400, ROOM_H * 1.5),
+    WALL_FRONT + Math.max(1600, ROOM_D * 0.12)
+  );
+  light.target.position.set(0, wallH * 0.42, COURT_Z);
+  light.target.updateMatrixWorld();
+  light.updateMatrixWorld();
+
+  var cam = light.shadow.camera;
+  cam.position.copy(light.position);
+  cam.up.copy(_worldUp);
+  cam.lookAt(light.target.position);
+  cam.updateMatrixWorld();
+
+  var inv = cam.matrixWorldInverse;
+  var minX = Infinity;
+  var minY = Infinity;
+  var minZ = Infinity;
+  var maxX = -Infinity;
+  var maxY = -Infinity;
+  var maxZ = -Infinity;
+  var xs = [WALL_LEFT, WALL_RIGHT];
+  var ys = [0, wallH];
+  var zs = [WALL_BACK, WALL_FRONT];
+  var i;
+  var j;
+  var k;
+  for (i = 0; i < 2; i += 1) {
+    for (j = 0; j < 2; j += 1) {
+      for (k = 0; k < 2; k += 1) {
+        _shadowPt.set(xs[i], ys[j], zs[k]).applyMatrix4(inv);
+        if (_shadowPt.x < minX) {
+          minX = _shadowPt.x;
+        }
+        if (_shadowPt.y < minY) {
+          minY = _shadowPt.y;
+        }
+        if (_shadowPt.z < minZ) {
+          minZ = _shadowPt.z;
+        }
+        if (_shadowPt.x > maxX) {
+          maxX = _shadowPt.x;
+        }
+        if (_shadowPt.y > maxY) {
+          maxY = _shadowPt.y;
+        }
+        if (_shadowPt.z > maxZ) {
+          maxZ = _shadowPt.z;
+        }
+      }
+    }
+  }
+  var pad = rad * 6;
+  cam.left = minX - pad;
+  cam.right = maxX + pad;
+  cam.bottom = minY - pad;
+  cam.top = maxY + pad;
+  var near = -maxZ - pad;
+  var far = -minZ + pad;
+  if (near < 1) {
+    near = 1;
+  }
+  if (far < near + 10) {
+    far = near + 10;
+  }
+  cam.near = near;
+  cam.far = far;
+  cam.updateProjectionMatrix();
 }
 
 function clampBallsToCourt() {
@@ -678,19 +746,12 @@ function setupScene() {
   scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3a3a, 0.7));
 
   light = new THREE.DirectionalLight(0xffffff, 1.15);
-  light.position.set(-800, 5000, 2000);
   light.castShadow = true;
   light.shadow.mapSize.set(2048, 2048);
-  light.shadow.camera.near = 100;
-  light.shadow.camera.far = 20000;
-  light.shadow.camera.left = -2000;
-  light.shadow.camera.right = 2000;
-  light.shadow.camera.top = 4000;
-  light.shadow.camera.bottom = -14000;
-  light.shadow.bias = -0.0002;
+  light.shadow.bias = -0.00035;
+  light.shadow.normalBias = 2.4;
   scene.add(light);
   scene.add(light.target);
-  light.target.position.set(0, 0, COURT_Z);
 
   fillLight = new THREE.DirectionalLight(0xc8c8c8, 0.28);
   fillLight.position.set(900, 400, 600);
@@ -808,6 +869,7 @@ function setupScene() {
   debugGroup = new THREE.Group();
   debugGroup.visible = SHOW_DEBUG;
   scene.add(debugGroup);
+  fitShadowCamera();
   rebuildDebugBounds();
 }
 
