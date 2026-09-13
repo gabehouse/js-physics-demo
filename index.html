@@ -3,19 +3,55 @@
 <head>
 <link rel="shortcut icon" type="image/x-icon" href="favicon.ico" />
 	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<title>Gabriel House</title>
 	<link rel="stylesheet" href="index.css">
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "./vendor/three.module.min.js"
+		}
+	}
+	</script>
 </head>
 <body>
 	<header class="intro">
 		<p class="intro-name">Gabe House</p>
-		<p class="intro-bio">Interactive canvas physics — momentum, collisions, and spin. Flick or drag the ball.</p>
+		<p class="intro-bio">WASD to walk: W/S forward and back, A/D to strafe. Space to jump. Left-drag the background to look (drag down to look up). Hover-flick a ball, left-click it to pull, scroll to roll. Right-click and drag a line, then release on a ball to hit.</p>
 		<p class="intro-links">
 			<a href="https://github.com/gabehouse" target="_blank" rel="noopener noreferrer">GitHub</a>
 			<a href="https://mail.google.com/mail/?view=cm&amp;fs=1&amp;to=gabriel.jsh@gmail.com" target="_blank" rel="noopener noreferrer">Email</a>
 		</p>
 	</header>
-	<canvas id="canvas" width="1496" height="488"></canvas>
-	<script src="index.js"></script>
+	<aside class="params" id="params">
+		<div class="params-head">
+			<p class="params-title">Parameters</p>
+			<button type="button" class="params-toggle" id="params-toggle" aria-expanded="true" aria-controls="params-body">Hide</button>
+		</div>
+		<div class="params-body" id="params-body">
+			<label class="params-row">
+				<span>Squishiness <b id="squish-val">55</b></span>
+				<input id="squish" type="range" min="0" max="100" value="55" />
+			</label>
+			<label class="params-row">
+				<span>Weight <b id="weight-val">25</b></span>
+				<input id="weight" type="range" min="0" max="100" value="25" />
+			</label>
+			<label class="params-row">
+				<span>Magnus <b id="magnus-val">40</b></span>
+				<input id="magnus" type="range" min="0" max="100" value="40" />
+			</label>
+			<label class="params-row">
+				<span>Arena <b id="arena-val">100</b></span>
+				<input id="arena" type="range" min="50" max="200" value="100" />
+			</label>
+			<label class="params-row">
+				<span>Balls <b id="ball-count-val">1</b></span>
+				<input id="ball-count" type="range" min="1" max="100" value="1" />
+			</label>
+		</div>
+	</aside>
+	<canvas id="canvas"></canvas>
+	<script type="module" src="index.js"></script>
 </body>
 </html>

@@ -1,11 +1,12 @@
 html, body {
-  height:100%;
+  height: 100%;
 }
 
 body {
-  background-color: #CCC;
+  background-color: #1a1a1a;
   margin: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .intro {
@@ -14,10 +15,11 @@ body {
   left: 0;
   z-index: 2;
   padding: 1.15rem 1.4rem 0;
-  max-width: 22rem;
+  max-width: 24rem;
   pointer-events: none;
   font-family: Georgia, "Times New Roman", serif;
-  color: #1a1a1a;
+  color: #111;
+  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.9);
 }
 
 .intro-name {
@@ -29,7 +31,7 @@ body {
   margin: 0 0 0.45rem;
   font-size: 0.8rem;
   line-height: 1.4;
-  color: #333;
+  color: #222;
 }
 
 .intro-links {
@@ -48,96 +50,96 @@ body {
 }
 
 canvas {
-  background: #000;
+  background: #0a0a0a;
   height: 100%;
   width: 100%;
   display: block;
   touch-action: none;
 }
-h3 {
-  font-size:22px;
-  font-family:"Open Sans", Arial;
-  line-height:1em;
-  font-weight:bold;
-  margin-left:1em;
-  white-space:nowrap;
-}
 
-/* main wrapper */
-
-#main {
-  background: #666;
-  width: 600px;
-  /*100%*/
-  /* makes responsive */
-  
-  height: 400px;
-  /*100%*/
-  /* makes responsive */
-  
-  position: relative;
-  /* absolute */
-  margin-left:1.5em;
-  border:1px solid #777;
-}
-
-
-/* foreground and background */
-
-#sky {
-  background:#49cfef;
-  background: linear-gradient(to bottom, #ffffff, #1a1a1a);
-  
+.params {
   position: absolute;
   top: 0;
-  left: 0;
+  right: 0;
+  z-index: 3;
+  margin: 1.1rem 1.2rem 0 0;
+  padding: 0.85rem 1rem 1rem;
+  width: 13.5rem;
+  pointer-events: auto;
+  font-family: Georgia, "Times New Roman", serif;
+  color: #111;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.85);
+}
+
+.params-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0 0 0.65rem;
+}
+
+.params-title {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.params-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: #222;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.params-toggle:hover {
+  color: #000;
+}
+
+.params-body {
+  display: block;
+}
+
+.params.params-collapsed {
+  width: auto;
+  padding-bottom: 0.85rem;
+}
+
+.params.params-collapsed .params-head {
+  margin-bottom: 0;
+}
+
+.params.params-collapsed .params-body {
+  display: none;
+}
+
+.params-row {
+  display: block;
+  margin: 0 0 0.7rem;
+  font-size: 0.78rem;
+}
+
+.params-row span {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.28rem;
+}
+
+.params-row b {
+  font-weight: normal;
+}
+
+.params-row input[type="range"] {
   width: 100%;
-  height: 70%;
-  /*300px*/
-  
-  z-index: 0;
+  margin: 0;
+  accent-color: #222;
 }
 
-#ground {
-  background:#666;
-  background: linear-gradient(to bottom, #1a1a1a, #f2f2f2);
-    
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 30%;  
-  z-index: 0;
-}
-/* svg styles */
-
-svg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 2;
-}
-
-#mc_shadow {
-  position: absolute;
-  left: 300px;
-  top: 324px;
-}
-
-#mc_shadow #shadow_path {
-  fill-opacity: 1;
-}
-
-#mc_ball {
-  position: absolute;
-  top: 0;
-  left: 300px;
-  top: 279px;
-}
-
-#mc_ball_base {
-  position: absolute;
-  top: 0;
+.params-row:last-child {
+  margin-bottom: 0;
 }
