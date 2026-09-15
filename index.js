@@ -400,6 +400,7 @@ function capturePose(ball) {
   ball.prevPose.sx = ball.sx;
   ball.prevPose.sy = ball.sy;
   ball.prevPose.sz = ball.sz;
+  ball.prevPose.hitPen = ball.hitPen;
   ball.prevPose.q.copy(ball.q);
 }
 
@@ -551,18 +552,25 @@ function placeBallAtSpawn(ball, index) {
   ball.sx = 1;
   ball.sy = 1;
   ball.sz = 1;
+  ball.hitPen = 0;
+  ball.hitPenVel = 0;
+  ball.hitDirX = 0;
+  ball.hitDirY = 0;
+  ball.hitDirZ = 1;
   ball.prevPose.x = pos.x;
   ball.prevPose.y = pos.y;
   ball.prevPose.z = pos.z;
   ball.prevPose.sx = 1;
   ball.prevPose.sy = 1;
   ball.prevPose.sz = 1;
+  ball.prevPose.hitPen = 0;
   ball.view.x = pos.x;
   ball.view.y = pos.y;
   ball.view.z = pos.z;
   ball.view.sx = 1;
   ball.view.sy = 1;
   ball.view.sz = 1;
+  ball.view.hitPen = 0;
 }
 
 function makeBall(index) {
@@ -596,6 +604,11 @@ function makeBall(index) {
     sx: 1,
     sy: 1,
     sz: 1,
+    hitPen: 0,
+    hitPenVel: 0,
+    hitDirX: 0,
+    hitDirY: 0,
+    hitDirZ: 1,
     pairPenX: 0,
     pairPenY: 0,
     pairPenZ: 0,
@@ -606,6 +619,7 @@ function makeBall(index) {
       sx: 1,
       sy: 1,
       sz: 1,
+      hitPen: 0,
       q: new THREE.Quaternion()
     },
     view: {
@@ -615,6 +629,7 @@ function makeBall(index) {
       sx: 1,
       sy: 1,
       sz: 1,
+      hitPen: 0,
       q: new THREE.Quaternion()
     },
     squashGroup: squashGroup,
@@ -1649,8 +1664,21 @@ function fireStrokeHit() {
   var hx = target.x + chargeOffset.x;
   var hy = target.y + chargeOffset.y;
   var hz = target.z + chargeOffset.z;
+  var ovx = target.velx;
+  var ovy = target.vely;
+  var ovz = target.velz;
   hitBall(target, dx * speed, dy * speed, dz * speed, hx, hy, hz, 0);
   applyWrapSpin(target, hitR, hitU, startR, startU, wR, wU, t, edge, swing);
+  pulseHitSquash(
+    target,
+    chargeOffset.x,
+    chargeOffset.y,
+    chargeOffset.z,
+    target.velx - ovx,
+    target.vely - ovy,
+    target.velz - ovz,
+    t
+  );
   cancelStroke();
   chargeFired = true;
 }
@@ -2185,6 +2213,61 @@ function contactCompress(pen) {
   return Math.min(pen / MAX_PEN, 1) * SQUASH_AMOUNT;
 }
 
+function hitSquashPen(t, closing, impactSpeed) {
+  t = clamp(t, 0, 1);
+  var align = impactSpeed > 1 ? clamp(closing / impactSpeed, 0, 1) : 0;
+  return MAX_PEN * lerp(0.16, 1, t) * align;
+}
+
+function setHitDir(ball, nx, ny, nz) {
+  var len = hypot3(nx, ny, nz);
+  if (len < 1e-6) {
+    ball.hitDirX = 0;
+    ball.hitDirY = 0;
+    ball.hitDirZ = 1;
+    return;
+  }
+  ball.hitDirX = nx / len;
+  ball.hitDirY = ny / len;
+  ball.hitDirZ = nz / len;
+}
+
+function pulseHitSquash(ball, nx, ny, nz, vx, vy, vz, t) {
+  if (!ball) {
+    return;
+  }
+  setHitDir(ball, nx, ny, nz);
+  var speed = hypot3(vx, vy, vz);
+  var closing = Math.max(
+    0,
+    -(vx * ball.hitDirX + vy * ball.hitDirY + vz * ball.hitDirZ)
+  );
+  var pen = hitSquashPen(t, closing, speed);
+  if (pen >= ball.hitPen) {
+    ball.hitPen = pen;
+    ball.hitPenVel = 0;
+  }
+}
+
+function decayHitSquash(dt) {
+  var w = Math.sqrt(Math.max(SQUASH_K, 1));
+  var zeta = lerp(1.2, 0.62, SQUISHINESS);
+  var damp = 2 * zeta * w;
+  var i;
+  for (i = 0; i < balls.length; i += 1) {
+    var ball = balls[i];
+    if (ball.hitPen <= 0 && ball.hitPenVel === 0) {
+      continue;
+    }
+    ball.hitPenVel -= (w * w * ball.hitPen + damp * ball.hitPenVel) * dt;
+    ball.hitPen += ball.hitPenVel * dt;
+    if (ball.hitPen < 0.35 || (ball.hitPen < 1.2 && ball.hitPenVel > 0 && ball.hitPenVel < 8)) {
+      ball.hitPen = 0;
+      ball.hitPenVel = 0;
+    }
+  }
+}
+
 function updateSquash(ball) {
   var floorPen = Math.max(0, restY - ball.y);
   var wallPenX = Math.max(0, lx - ball.x, ball.x - rx);
@@ -2204,6 +2287,7 @@ function update(dt) {
     integrate(balls[i], dt);
   }
   resolveBallCollisions(dt);
+  decayHitSquash(dt);
   for (i = 0; i < balls.length; i += 1) {
     updateSquash(balls[i]);
   }
@@ -2258,16 +2342,80 @@ function syncView(ball, alpha) {
   view.sx = lerp(prevPose.sx, ball.sx, alpha);
   view.sy = lerp(prevPose.sy, ball.sy, alpha);
   view.sz = lerp(prevPose.sz, ball.sz, alpha);
+  view.hitPen = lerp(prevPose.hitPen || 0, ball.hitPen, alpha);
   view.q.slerpQuaternions(prevPose.q, ball.q, alpha);
 }
 
 function drawBall(ball) {
   var view = ball.view;
-  var pivot = squashPivot(view);
   var vis = visualCenter(view);
-  ball.squashGroup.position.set(pivot.x, pivot.y, pivot.z);
-  ball.squashGroup.scale.set(view.sx, view.sy, view.sz);
-  ball.ballGroup.position.set(vis.x - pivot.x, vis.y - pivot.y, vis.z - pivot.z);
+  var hitC = contactCompress(view.hitPen);
+  var pivot;
+  var along;
+  var across;
+  var nx;
+  var ny;
+  var nz;
+  var hlen;
+  if (hitC > 0.004) {
+    nx = ball.hitDirX;
+    ny = ball.hitDirY;
+    nz = ball.hitDirZ;
+    along = 1 / (1 + hitC);
+    across = 1 + hitC * 0.5;
+    if (view.y <= restY + 10) {
+      hlen = Math.hypot(nx, nz);
+      if (hlen < 0.18) {
+        ball.squashGroup.quaternion.identity();
+        pivot = squashPivot(view);
+        ball.squashGroup.position.set(pivot.x, pivot.y, pivot.z);
+        ball.squashGroup.scale.set(
+          view.sx * across,
+          view.sy * along,
+          view.sz * across
+        );
+      } else {
+        nx /= hlen;
+        nz /= hlen;
+        _tmpA.set(0, 0, 1);
+        _axis.set(nx, 0, nz);
+        ball.squashGroup.quaternion.setFromUnitVectors(_tmpA, _axis);
+        pivot = {
+          x: vis.x + nx * rad,
+          y: view.y < restY + 2 ? 0 : vis.y,
+          z: vis.z + nz * rad
+        };
+        ball.squashGroup.position.set(pivot.x, pivot.y, pivot.z);
+        ball.squashGroup.scale.set(across, across, along);
+      }
+    } else {
+      _tmpA.set(0, 1, 0);
+      _axis.set(nx, ny, nz);
+      if (_axis.lengthSq() < 1e-8) {
+        _axis.set(0, 0, 1);
+      } else {
+        _axis.normalize();
+      }
+      ball.squashGroup.quaternion.setFromUnitVectors(_tmpA, _axis);
+      pivot = {
+        x: vis.x + _axis.x * rad,
+        y: vis.y + _axis.y * rad,
+        z: vis.z + _axis.z * rad
+      };
+      ball.squashGroup.position.set(pivot.x, pivot.y, pivot.z);
+      ball.squashGroup.scale.set(across, along, across);
+    }
+    _tmpA.set(vis.x - pivot.x, vis.y - pivot.y, vis.z - pivot.z);
+    _tmpQ.copy(ball.squashGroup.quaternion).invert();
+    _tmpA.applyQuaternion(_tmpQ);
+    ball.ballGroup.position.copy(_tmpA);
+  } else {
+    ball.squashGroup.quaternion.identity();
+    pivot = squashPivot(view);
+    ball.squashGroup.position.set(pivot.x, pivot.y, pivot.z);
+    ball.squashGroup.scale.set(view.sx, view.sy, view.sz);
+    ball.ballGroup.position.set(vis.x - pivot.x, vis.y - pivot.y, vis.z - pivot.z);
+  }
   ball.ballGroup.quaternion.copy(view.q);
 
   var height = Math.max(0, vis.y - restY);
